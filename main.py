@@ -3,7 +3,7 @@ from pybit.unified_trading import HTTP
 import os
 import logging
 import time
-import requests  # Para enviar mensajes a Telegram
+import requests
 
 # Configuración profesional de logs
 logging.basicConfig(
@@ -19,7 +19,7 @@ def get_bybit_session():
     return HTTP(
         api_key=os.getenv("BYBIT_API_KEY"),
         api_secret=os.getenv("BYBIT_API_SECRET"),
-        testnet=False,  # IMPORTANTE: False para cuenta real
+        testnet=False,
         recv_window=5000
     )
 
@@ -32,7 +32,6 @@ MIN_TRADE_QTY = {
 
 # Función para enviar a Telegram
 def send_telegram_alert(message: str):
-    """Envía mensajes a Telegram a través de tu bot"""
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
     if not bot_token or not chat_id:
@@ -40,10 +39,7 @@ def send_telegram_alert(message: str):
         return
     
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": message
-    }
+    payload = {"chat_id": chat_id, "text": message}
     try:
         response = requests.post(url, json=payload, timeout=10)
         if response.status_code != 200:
@@ -57,7 +53,6 @@ def webhook():
     logger.info("Alerta recibida")
     
     try:
-        # 1. Validar payload
         data = request.json
         if not data:
             send_telegram_alert("❌ Error: Payload vacío")
@@ -65,25 +60,21 @@ def webhook():
             
         logger.info(f"Datos recibidos: {data}")
         
-        # 2. Procesar parámetros
         pair = (data.get("pair") or "").strip().replace("/", "").replace(" ", "").upper()
         side = (data.get("side") or "").strip().capitalize()
         
-        # Validación crítica para cuenta real
         if pair not in MIN_TRADE_QTY:
-            error_msg = f"❌ Par inválido: {pair}. Pares válidos: {list(MIN_TRADE_QTY.keys())}"
+            error_msg = f"❌ Par inválido: {pair}"
             send_telegram_alert(error_msg)
             return jsonify({"error": error_msg}), 400
             
         if side not in ["Buy", "Sell"]:
-            error_msg = f"❌ Side inválido: {side}. Use 'Buy' o 'Sell'"
+            error_msg = f"❌ Side inválido: {side}"
             send_telegram_alert(error_msg)
             return jsonify({"error": error_msg}), 400
         
-        # 3. Crear sesión de Bybit
         session = get_bybit_session()
         
-        # 4. Obtener precio de mercado
         ticker = session.get_tickers(category="linear", symbol=pair)
         if not ticker or "result" not in ticker or not ticker["result"]["list"]:
             error_msg = f"❌ Error obteniendo precio para {pair}"
@@ -92,7 +83,6 @@ def webhook():
             
         current_price = float(ticker["result"]["list"][0]["lastPrice"])
         
-        # 5. Obtener balance
         balance = session.get_wallet_balance(accountType="UNIFIED", coin="USDT")
         if not balance or "result" not in balance or not balance["result"]["list"]:
             error_msg = "❌ Error obteniendo balance"
@@ -101,7 +91,6 @@ def webhook():
             
         usdt_balance = float(balance["result"]["list"][0]["coin"][0]["availableToTrade"])
         
-        # 6. Calcular cantidad (con márgenes de seguridad)
         leverage = 20
         risk_percent = 0.10
         capital_to_risk = usdt_balance * risk_percent
@@ -110,7 +99,6 @@ def webhook():
         
         logger.info(f"Operación: {pair} | {side} | QTY: {qty} | Precio: {current_price}")
         
-        # 7. Configurar apalancamiento
         leverage_res = session.set_leverage(
             category="linear",
             symbol=pair,
@@ -119,17 +107,15 @@ def webhook():
         )
         logger.info(f"Respuesta apalancamiento: {leverage_res}")
         
-        # 8. Enviar orden
         order_response = session.place_order(
             category="linear",
             symbol=pair,
             side=side,
             orderType="Market",
-            qty=str(qty),  # Bybit requiere string
+            qty=str(qty),
             timeInForce="GoodTillCancel"
         )
         
-        # 9. Notificar resultados
         if order_response.get("retCode") != 0:
             error_msg = f"❌ Bybit error: {order_response.get('retMsg')}"
             send_telegram_alert(error_msg)
@@ -140,7 +126,6 @@ def webhook():
         logger.info(msg)
         send_telegram_alert(msg)
         
-        # 10. Métricas de rendimiento
         process_time = round(time.time() - start_time, 2)
         logger.info(f"Proceso completado en {process_time}s")
         
@@ -163,6 +148,5 @@ def home():
     return "🚀 Bot Operativo (Bybit + TradingView + Telegram)"
 
 if __name__ == "__main__":
-    # Solo para desarrollo local
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
