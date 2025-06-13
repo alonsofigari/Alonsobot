@@ -1,4 +1,4 @@
 flask
 requests
 python-dotenv
-pybit
+bybit==0.2.6
