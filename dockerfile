@@ -1,14 +1,9 @@
-FROM python:3.10-slim
-
-# Instala compiladores y dependencias esenciales
-RUN apt-get update && \
-    apt-get install -y build-essential libssl-dev libffi-dev && \
-    rm -rf /var/lib/apt/lists/*
+FROM python:3.10-bullseye  # Imagen más completa
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip wheel && \
+RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 COPY . .
