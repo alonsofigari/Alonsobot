@@ -1,63 +1,83 @@
 from flask import Flask, request
+from pybit.unified_trading import HTTP
 import requests
 import os
-from bybit import bybit
 
 app = Flask(__name__)
 
-# ✅ CONFIGURACIONES PRINCIPALES DESDE VARIABLES DE ENTORNO
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "TU_TOKEN_DEL_BOT")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "TU_CHAT_ID")
-BYBIT_API_KEY = os.getenv("BYBIT_API_KEY", "TU_API_KEY")
-BYBIT_API_SECRET = os.getenv("BYBIT_API_SECRET", "TU_SECRET")
+# 📩 Configuración de Telegram
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# ⚙️ AJUSTES DE TRADING (modificables desde Render)
-TRADE_PERCENTAGE = float(os.getenv("TRADE_PERCENTAGE", 0.10))  # 10% capital por operación
-LEVERAGE = int(os.getenv("LEVERAGE", 20))                      # Apalancamiento 20x
+# ⚙️ Configuración de Bybit
+API_KEY = os.getenv("BYBIT_API_KEY")
+API_SECRET = os.getenv("BYBIT_API_SECRET")
+PERCENT_CAPITAL = float(os.getenv("CAPITAL_PERCENT", 10))  # Por defecto 10%
+LEVERAGE = int(os.getenv("LEVERAGE", 20))  # Por defecto 20x
 
-# 🌐 CONEXIÓN BYBIT
-session = bybit(test=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
+# 🧠 Inicializar sesión en Bybit
+session = HTTP(
+    testnet=False,  # True si estás en testnet
+    api_key=API_KEY,
+    api_secret=API_SECRET
+)
 
 @app.route("/")
 def home():
-    return "🚀 Bot corriendo correctamente."
+    return "✅ Bot activo y corriendo."
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
-    print("📩 Señal recibida:", data)
+    print("📥 Alerta recibida:", data)
 
-    mensaje = f"📈 Señal recibida:\n{data}"
+    # Extraer mensaje de alerta de TradingView
+    alert = str(data.get("alert", "")).lower()
+
+    if "btc" in alert:
+        symbol = "BTCUSDT"
+    elif "eth" in alert:
+        symbol = "ETHUSDT"
+    elif "sol" in alert:
+        symbol = "SOLUSDT"
+    else:
+        return {"status": "symbol not supported"}, 400
+
+    if "buy" in alert:
+        side = "Buy"
+    elif "sell" in alert:
+        side = "Sell"
+    else:
+        return {"status": "side not recognized"}, 400
+
+    # Obtener balance de USDT
+    balance_info = session.get_wallet_balance(accountType="UNIFIED")
+    usdt_balance = float(balance_info["result"]["list"][0]["totalEquity"])
+    amount_to_use = usdt_balance * (PERCENT_CAPITAL / 100)
+
+    # Obtener precio actual
+    price_data = session.get_ticker(category="linear", symbol=symbol)
+    price = float(price_data["result"]["list"][0]["lastPrice"])
+    qty = round((amount_to_use * LEVERAGE) / price, 3)
+
+    # Establecer apalancamiento
+    session.set_leverage(category="linear", symbol=symbol, buyLeverage=LEVERAGE, sellLeverage=LEVERAGE)
+
+    # Ejecutar orden de mercado
+    order = session.place_order(
+        category="linear",
+        symbol=symbol,
+        side=side,
+        orderType="Market",
+        qty=qty,
+        timeInForce="GoodTillCancel"
+    )
+
+    # Enviar mensaje a Telegram
+    mensaje = f"✅ Operación ejecutada:\n🪙 Par: {symbol}\n📈 Tipo: {side}\n📊 Cantidad: {qty} ({PERCENT_CAPITAL}% capital, {LEVERAGE}x)"
     send_telegram_message(mensaje)
 
-    try:
-        symbol = data.get("symbol", "BTCUSDT")
-        action = data.get("action", "BUY").upper()  # "BUY" o "SELL"
-
-        # Obtener balance disponible
-        balance = session.Wallet.Wallet_getBalance(coin="USDT").result()[0]["available_balance"]
-        amount = round((balance * TRADE_PERCENTAGE) * LEVERAGE, 2)
-
-        # Establecer apalancamiento
-        session.Positions.Positions_saveLeverage(symbol=symbol, leverage=LEVERAGE).result()
-
-        # Ejecutar orden de mercado
-        side = "Buy" if action == "BUY" else "Sell"
-        order = session.Order.Order_new(
-            symbol=symbol,
-            side=side,
-            order_type="Market",
-            qty=amount,
-            time_in_force="GoodTillCancel",
-            reduce_only=False,
-            close_on_trigger=False
-        ).result()
-
-        send_telegram_message(f"✅ Orden ejecutada: {side} {symbol} x {amount} USDT con {LEVERAGE}x")
-    except Exception as e:
-        send_telegram_message(f"⚠️ Error al ejecutar orden: {str(e)}")
-
-    return {"status": "ok"}, 200
+    return {"status": "operación ejecutada"}, 200
 
 def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -67,5 +87,5 @@ def send_telegram_message(text):
     except Exception as e:
         print("❌ Error enviando a Telegram:", e)
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
