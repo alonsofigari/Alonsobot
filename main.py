@@ -1,78 +1,59 @@
-from flask import Flask, request
-import requests
+from flask import Flask, request, render_template
 import os
-from pybit.unified_trading import HTTP
+import json
+from datetime import datetime
 
 app = Flask(__name__)
 
-# Carga variables desde Render
-API_KEY = os.getenv("BYBIT_API_KEY")
-API_SECRET = os.getenv("BYBIT_API_SECRET")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+# Estado del bot (simulado)
+bot_status = {
+    "status": "Activo",
+    "last_action": "Esperando señal",
+    "last_pair": "BTC/USDT",
+    "last_side": "N/A",
+    "entry_price": None,
+    "trailing_stop": None,
+    "trailing_active": False
+}
 
-# Conexión a Bybit (cuenta real)
-session = HTTP(
-    api_key=API_KEY,
-    api_secret=API_SECRET
-)
+log_file = "bot_activity.log"
+
+# Función para guardar logs
+def guardar_log(mensaje):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(log_file, "a") as f:
+        f.write(f"[{timestamp}] {mensaje}\n")
 
 @app.route("/")
-def home():
-    return "Servidor funcionando."
+def panel():
+    # Mostrar últimos 30 logs
+    if os.path.exists(log_file):
+        with open(log_file, "r") as f:
+            logs = f.readlines()[-30:]
+    else:
+        logs = ["Sin registros aún."]
+
+    return render_template("monitor.html", status=bot_status, logs=logs)
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.json
-    print("Alerta recibida:", data)
+    data = request.get_json()
 
-    # Acepta keys minúsculas o mayúsculas
-    pair = data.get("pair") or data.get("PAIR")
-    side = data.get("side") or data.get("SIDE")
+    pair = data.get("pair")
+    side = data.get("side")
+    price = float(data.get("price", 0))
 
-    if pair is None or side is None:
-        return {"error": "Falta 'pair' o 'side'"}, 400
+    bot_status["last_pair"] = pair
+    bot_status["last_side"] = side
+    bot_status["entry_price"] = price
+    bot_status["last_action"] = f"{side.upper()} {pair} @ {price}"
+    bot_status["trailing_active"] = True
+    bot_status["trailing_stop"] = price * 0.98 if side.lower() == "long" else price * 1.02
 
-    # Configuración base
-    leverage = float(os.getenv("LEVERAGE", 20))
-    capital_pct = float(os.getenv("CAPITAL_PCT", 10))  # % del capital a usar
-    pair = pair.upper()
-    side = side.upper()
-
-    # Obtener balance
-    balance = session.get_wallet_balance(accountType="UNIFIED")["result"]["list"][0]["totalEquity"]
-    amount_usdt = balance * (capital_pct / 100)
-
-    # Obtener precio actual
-    price_data = session.get_ticker(category="linear", symbol=pair)["result"]["list"][0]
-    last_price = float(price_data["lastPrice"])
-
-    # Calcular cantidad de contrato (qty)
-    qty = round((amount_usdt * leverage) / last_price, 3)
-
-    # Enviar orden
-    order = session.place_order(
-        category="linear",
-        symbol=pair,
-        side=side,
-        orderType="Market",
-        qty=qty,
-        timeInForce="GoodTillCancel"
-    )
-
-    # Enviar a Telegram
-    msg = f"📈 ORDEN ENVIADA:\nPAIR: {pair}\nSIDE: {side}\nQTY: {qty}\nPRICE: {last_price}"
-    send_telegram_message(msg)
+    guardar_log(f"Señal recibida: {side.upper()} {pair} @ {price}")
+    guardar_log(f"Trailing activado en: {bot_status['trailing_stop']:.2f}")
 
     return {"status": "ok"}, 200
-
-def send_telegram_message(text):
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text}
-    try:
-        requests.post(url, data=payload)
-    except Exception as e:
-        print("Error al enviar a Telegram:", e)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
