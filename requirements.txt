@@ -1,4 +1,5 @@
 flask
-requests
+requests==2.27.1
+urllib3==1.26.6
 python-dotenv
 bybit==0.2.6
