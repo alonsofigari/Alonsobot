@@ -2,3 +2,4 @@ flask
 requests
 python-dotenv
 pybit==5.11.0
+rich
