@@ -4,6 +4,7 @@ import os
 import logging
 import time
 import requests
+import threading
 
 # Configuración profesional de logs
 logging.basicConfig(
@@ -147,6 +148,29 @@ def webhook():
 def home():
     return "🚀 Bot Operativo (Bybit + TradingView + Telegram)"
 
+# Función para mantener el servicio activo (solo en producción)
+def keep_alive():
+    while True:
+        try:
+            # Obtener la URL del servicio desde variable de entorno o construirlo
+            service_name = os.getenv('RENDER_SERVICE_NAME')
+            if service_name:
+                url = f"https://{service_name}.onrender.com"
+            else:
+                # Si no está configurado, usar la URL base (para evitar errores)
+                url = "https://alonsobot.onrender.com"  # Reemplaza con tu URL real si es diferente
+            response = requests.get(url)
+            logger.info(f"Keep-alive ping: {response.status_code}")
+        except Exception as e:
+            logger.error(f"Error en keep-alive: {str(e)}")
+        time.sleep(240)  # Ping cada 4 minutos
+
+# Iniciar el thread de keep-alive solo si no estamos en modo de desarrollo
 if __name__ == "__main__":
+    # Iniciar el thread de keep-alive en segundo plano
+    t = threading.Thread(target=keep_alive)
+    t.daemon = True  # El hilo se cerrará cuando el proceso principal termine
+    t.start()
+    
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
