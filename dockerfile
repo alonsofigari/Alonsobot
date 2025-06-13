@@ -1,5 +1,8 @@
 FROM python:3.10-slim
 
+# Instala compiladores necesarios
+RUN apt-get update && apt-get install -y build-essential
+
 WORKDIR /app
 
 COPY requirements.txt .
