@@ -1,91 +1,85 @@
 from flask import Flask, request, jsonify
 from pybit.unified_trading import HTTP
 import os
+import logging
 
-# Inicializar la app Flask
+# Configurar logging profesional
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 app = Flask(__name__)
 
-# Obtener claves desde variables de entorno
-API_KEY = os.getenv("BYBIT_API_KEY")
-API_SECRET = os.getenv("BYBIT_API_SECRET")
-
-# Cliente de Bybit
+# Configurar cliente Bybit CORRECTO
 session = HTTP(
-    api_key=API_KEY,
-    api_secret=API_SECRET,
+    api_key=os.getenv("BYBIT_API_KEY"),
+    api_secret=os.getenv("BYBIT_API_SECRET"),
+    testnet=False,  # Cambia a True si estás en testnet
+    recv_window=5000
 )
 
-# Configuración por defecto
-DEFAULT_LEVERAGE = 20
-DEFAULT_CAPITAL_PERCENT = 0.10
-
-# Tamaños mínimos de contratos por símbolo
-MIN_TRADE_QTY = {
-    "BTCUSDT": 0.001,
-    "ETHUSDT": 0.01,
-    "SOLUSDT": 0.1,
+# Normalizar nombres de pares
+SYMBOL_MAP = {
+    "BTCUSDT": "BTCUSDT",
+    "ETHUSDT": "ETHUSDT",
+    "SOLUSDT": "SOLUSDT",
+    # Agrega otros pares que uses
 }
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
-    print("Alerta recibida:", data)
+    logger.info(f"Alerta recibida: {data}")
 
     try:
-        pair = data.get("pair") or data.get("PAIR")
-        side = data.get("side") or data.get("SIDE")
+        # Normalizar datos de entrada
+        pair = SYMBOL_MAP.get((data.get("pair") or "").upper().replace("/", ""))
+        side = (data.get("side") or "").capitalize()  # Convierte "buy" -> "Buy"
+        
+        if not pair or pair not in SYMBOL_MAP:
+            return jsonify({"error": f"Par no válido: {data.get('pair')}"}), 400
+            
+        if side not in ["Buy", "Sell"]:
+            return jsonify({"error": f"Lado no válido: {data.get('side')}"}), 400
 
-        if not pair or not side:
-            return jsonify({"error": "Faltan campos obligatorios (pair o side)."}), 400
+        # Obtener precio CORRECTO
+        price_data = session.get_orderbook(category="linear", symbol=pair)
+        current_price = float(price_data["result"]["list"][0]["ask1Price"])
+        
+        # Obtener balance CORRECTO (nueva estructura V5)
+        balance = session.get_wallet_balance(accountType="UNIFIED", coin="USDT")
+        usdt_balance = float(balance["result"]["list"][0]["coin"][0]["availableToTrade"])
+        
+        # ... (resto del cálculo de cantidad) ...
 
-        # Obtener precio de mercado actual
-        price_data = session.get_orderbook(category="linear", symbol=pair, limit=1)
-        current_price = float(price_data["result"]["list"][0]["price"])
-
-        # Obtener balance disponible
-        balance_data = session.get_wallet_balance(accountType="UNIFIED")
-        usdt_balance = float(balance_data["result"]["list"][0]["coin"][0]["availableToTrade"])
-
-        # Calcular cantidad de la orden
-        capital_to_use = usdt_balance * DEFAULT_CAPITAL_PERCENT
-        qty = round((capital_to_use * DEFAULT_LEVERAGE) / current_price, 3)
-
-        # Asegurar mínimo
-        min_qty = MIN_TRADE_QTY.get(pair.upper(), 0.01)
-        if qty < min_qty:
-            qty = min_qty
-
-        # Cancelar órdenes previas
-        session.cancel_all_orders(category="linear", symbol=pair)
-
-        # Establecer apalancamiento
-        session.set_leverage(
+        # Verificar apalancamiento ANTES de operar
+        leverage_response = session.set_leverage(
             category="linear",
             symbol=pair,
-            buyLeverage=DEFAULT_LEVERAGE,
-            sellLeverage=DEFAULT_LEVERAGE
+            buyLeverage=20,
+            sellLeverage=20
         )
+        logger.info(f"Leverage response: {leverage_response}")
 
-        # Colocar orden
+        # Enviar orden CON LOGGING
         order = session.place_order(
             category="linear",
             symbol=pair,
-            side=side.upper(),
+            side=side,  # Ahora "Buy" con mayúscula
             orderType="Market",
-            qty=qty,
-            timeInForce="GoodTillCancel",
-            reduceOnly=False
+            qty=0.001,  # Usa valor fijo para pruebas
+            timeInForce="GoodTillCancel"
         )
+        logger.info(f"Respuesta Bybit: {order}")
 
-        return jsonify({"message": "Orden enviada", "detalle": order})
+        # Enviar mensaje a Telegram (agrega tu lógica aquí)
+
+        return jsonify({"message": "Orden ejecutada", "order": order["result"]})
 
     except Exception as e:
-        print("Error:", str(e))
+        logger.exception("Error crítico:")  # Log detallado
         return jsonify({"error": str(e)}), 500
 
-@app.route("/")
-def home():
-    return "🚀 Bot operativo - Conectado a Bybit y escuchando señales de TradingView"
-
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    # Configuración para producción
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port, threaded=True)
