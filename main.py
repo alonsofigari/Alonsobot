@@ -18,8 +18,8 @@ app = Flask(__name__)
 # Configuración segura de Bybit (CUENTA REAL)
 def get_bybit_session():
     return HTTP(
-        api_key=os.getenv("BYBIT_API_KEY"),
-        api_secret=os.getenv("BYBIT_API_SECRET"),
+        api_key="bpjD7rJF1huSppC8Nk",  # API Key de Bybit
+        api_secret="dXjqQVqORzYrK0PJerHWkxBOQbtAC0aoVmQe",  # API Secret de Bybit
         testnet=False,
         recv_window=5000
     )
@@ -33,11 +33,8 @@ MIN_TRADE_QTY = {
 
 # Función para enviar a Telegram
 def send_telegram_alert(message: str):
-    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID")
-    if not bot_token or not chat_id:
-        logger.error("Faltan credenciales de Telegram")
-        return
+    bot_token = "7754651648:AAFUzgIPhm6SbFg9Q_0rQbodYRQ_db0O3Mc"  # Token de Telegram
+    chat_id = "479067462"  # Chat ID de Telegram
     
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {"chat_id": chat_id, "text": message}
@@ -148,28 +145,22 @@ def webhook():
 def home():
     return "🚀 Bot Operativo (Bybit + TradingView + Telegram)"
 
-# Función para mantener el servicio activo (solo en producción)
+# Función para mantener el servicio activo
 def keep_alive():
     while True:
         try:
-            # Obtener la URL del servicio desde variable de entorno o construirlo
-            service_name = os.getenv('RENDER_SERVICE_NAME')
-            if service_name:
-                url = f"https://{service_name}.onrender.com"
-            else:
-                # Si no está configurado, usar la URL base (para evitar errores)
-                url = "https://alonsobot.onrender.com"  # Reemplaza con tu URL real si es diferente
+            # Usando el nombre de servicio "alonsofigari"
+            url = "https://alonsofigari.onrender.com"
             response = requests.get(url)
             logger.info(f"Keep-alive ping: {response.status_code}")
         except Exception as e:
             logger.error(f"Error en keep-alive: {str(e)}")
         time.sleep(240)  # Ping cada 4 minutos
 
-# Iniciar el thread de keep-alive solo si no estamos en modo de desarrollo
 if __name__ == "__main__":
     # Iniciar el thread de keep-alive en segundo plano
     t = threading.Thread(target=keep_alive)
-    t.daemon = True  # El hilo se cerrará cuando el proceso principal termine
+    t.daemon = True
     t.start()
     
     port = int(os.environ.get("PORT", 10000))
