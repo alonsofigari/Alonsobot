@@ -1,77 +1,72 @@
-from flask import Flask, request, jsonify
-import os
-import json
-from bybit import HTTP
-from dotenv import load_dotenv
+from flask import Flask, request, jsonify from pybit.unified_trading import HTTP import os
 
-load_dotenv()
+app = Flask(name)
 
-app = Flask(__name__)
+Obtener claves desde variables de entorno
 
-# Variables de entorno
-API_KEY = os.getenv("BYBIT_API_KEY")
-API_SECRET = os.getenv("BYBIT_API_SECRET")
-DEFAULT_LEVERAGE = int(os.getenv("DEFAULT_LEVERAGE", 20))
-DEFAULT_CAPITAL_PERCENT = float(os.getenv("CAPITAL_PERCENT", 0.10))
+API_KEY = os.getenv("BYBIT_API_KEY") API_SECRET = os.getenv("BYBIT_API_SECRET")
 
-# Cliente Bybit
-session = HTTP(
-    endpoint="https://api.bybit.com",
-    api_key=API_KEY,
-    api_secret=API_SECRET
-)
+Cliente de Bybit
 
-SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+session = HTTP( api_key=API_KEY, api_secret=API_SECRET, )
 
-@app.route('/')
-def home():
-    return "🚀 Bot de Trading conectado correctamente."
+Configuración por defecto
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    try:
-        data = request.get_json()
-        print(f"🔔 Alerta recibida: {data}")
+DEFAULT_LEVERAGE = 20 DEFAULT_CAPITAL_PERCENT = 0.10
 
-        pair = data.get("pair", "").upper()
-        side = data.get("side", "").upper()
+Diccionario de tamaños de contrato mínimos por símbolo (ajustar según necesidad)
 
-        if pair not in SYMBOLS:
-            return jsonify({"error": "Par no soportado."}), 400
+MIN_TRADE_QTY = { "BTCUSDT": 0.001, "ETHUSDT": 0.01, "SOLUSDT": 0.1, }
 
-        if side not in ["BUY", "SELL"]:
-            return jsonify({"error": "Dirección no válida (usar BUY o SELL)."}), 400
+@app.route("/webhook", methods=["POST"]) def webhook(): data = request.json print("Alerta recibida:", data)
 
-        # Consulta saldo
-        wallet = session.get_wallet_balance(coin="USDT")
-        balance = float(wallet["result"]["USDT"]["available_balance"])
-        amount_usdt = balance * DEFAULT_CAPITAL_PERCENT
+try:
+    pair = data.get("pair") or data.get("PAIR")
+    side = data.get("side") or data.get("SIDE")
 
-        # Precio de mercado
-        ticker = session.latest_information_for_symbol(symbol=pair)
-        price = float(ticker["result"][0]["last_price"])
-        qty = round((amount_usdt * DEFAULT_LEVERAGE) / price, 3)
+    if not pair or not side:
+        return jsonify({"error": "Faltan campos obligatorios (pair o side)."}), 400
 
-        # Establecer apalancamiento
-        session.set_leverage(symbol=pair, buy_leverage=DEFAULT_LEVERAGE, sell_leverage=DEFAULT_LEVERAGE)
+    # Obtener precio de mercado actual
+    price_data = session.get_orderbook(category="linear", symbol=pair, limit=1)
+    current_price = float(price_data["result"]["list"][0]["price"])
 
-        # Crear orden
-        order = session.place_active_order(
-            symbol=pair,
-            side=side,
-            order_type="Market",
-            qty=qty,
-            time_in_force="GoodTillCancel",
-            reduce_only=False,
-            close_on_trigger=False
-        )
+    # Obtener balance disponible en USDT
+    balance_data = session.get_wallet_balance(accountType="UNIFIED")
+    usdt_balance = float(balance_data["result"]["list"][0]["coin"][0]["availableToTrade"])
 
-        print(f"✅ Orden ejecutada: {order}")
-        return jsonify({"status": "ok", "order": order}), 200
+    # Calcular tamaño de la posición
+    capital_to_use = usdt_balance * DEFAULT_CAPITAL_PERCENT
+    qty = round((capital_to_use * DEFAULT_LEVERAGE) / current_price, 3)
 
-    except Exception as e:
-        print(f"❌ Error procesando alerta: {e}")
-        return jsonify({"error": str(e)}), 500
+    min_qty = MIN_TRADE_QTY.get(pair.upper(), 0.01)
+    if qty < min_qty:
+        qty = min_qty
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    # Cancelar órdenes abiertas existentes
+    session.cancel_all_orders(category="linear", symbol=pair)
+
+    # Cambiar apalancamiento
+    session.set_leverage(category="linear", symbol=pair, buyLeverage=DEFAULT_LEVERAGE, sellLeverage=DEFAULT_LEVERAGE)
+
+    # Enviar orden de mercado
+    order = session.place_order(
+        category="linear",
+        symbol=pair,
+        side=side.upper(),
+        orderType="Market",
+        qty=qty,
+        timeInForce="GoodTillCancel",
+        reduceOnly=False
+    )
+
+    return jsonify({"message": "Orden enviada", "detalle": order})
+
+except Exception as e:
+    print("Error:", str(e))
+    return jsonify({"error": str(e)}), 500
+
+@app.route("/") def home(): return "🚀 Bot operativo - Conectado a Bybit y escuchando señales TradingView"
+
+if name == "main": app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
