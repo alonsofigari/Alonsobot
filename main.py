@@ -1,6 +1,11 @@
 from flask import Flask, request
 import requests
 import os
+
+print("🔐 TELEGRAM_BOT_TOKEN:", os.getenv("TELEGRAM_BOT_TOKEN"))
+print("💬 TELEGRAM_CHAT_ID:", os.getenv("TELEGRAM_CHAT_ID"))
+print("🔑 BYBIT_API_KEY:", os.getenv("BYBIT_API_KEY"))
+print("🗝️ BYBIT_API_SECRET:", os.getenv("BYBIT_API_SECRET"))
 from pybit import HTTP
 
 app = Flask(__name__)
