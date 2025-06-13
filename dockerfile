@@ -1,4 +1,9 @@
-FROM python:3.10-bullseye  # Imagen más completa
+FROM python:3.10-bullseye
+
+# Instala dependencias del sistema
+RUN apt-get update && \
+    apt-get install -y build-essential libssl-dev libffi-dev && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -11,4 +16,3 @@ COPY . .
 EXPOSE 10000
 
 CMD ["gunicorn", "main:app", "--workers", "1", "--timeout", "90", "--bind", "0.0.0.0:10000"]
-RUN pip install --no-cache-dir pybit==2.3.1 --no-binary :all:
