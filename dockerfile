@@ -1,18 +1,19 @@
-FROM python:3.10-bullseye
-
-# Instala dependencias del sistema
-RUN apt-get update && \
-    apt-get install -y build-essential libssl-dev libffi-dev && \
-    rm -rf /var/lib/apt/lists/*
+FROM python:3.9-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+# Instala dependencias del sistema
+RUN apt-get update && apt-get install -y build-essential
 
+# Copia e instala dependencias Python primero (para cache)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copia todo el código
 COPY . .
 
-EXPOSE 10000
+# Expone el puerto (debe ser 8000)
+EXPOSE 8000
 
-CMD ["gunicorn", "main:app", "--workers", "1", "--timeout", "90", "--bind", "0.0.0.0:10000"]
+# Comando para ejecutar tu bot
+CMD ["python", "-u", "alonso_bybit_bot.py"]
