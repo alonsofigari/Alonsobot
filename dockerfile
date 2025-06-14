@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copia todo el código
 COPY . .
 
-# Puerto expuesto (¡DEBE ser 8000!)
+# Puerto expuesto
 EXPOSE 8000
 
 # Comando de inicio
