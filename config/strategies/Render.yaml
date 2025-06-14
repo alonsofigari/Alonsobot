@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: alonso_bybit_bot
+    env: python
+    dockerfile: Dockerfile
+    autoDeploy: true
+    port: 8000
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: BYBIT_API_KEY
+        value: your_api_key_here
+      - key: BYBIT_API_SECRET
+        value: your_api_secret_here
